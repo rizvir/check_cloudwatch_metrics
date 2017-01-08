@@ -1,6 +1,7 @@
 #!/bin/bash
 # Nagios check script that uses awscli to fetch CloudWatch Metrics 
 # and compare them with a given threshold
+# by RizviR (check_cloudwatch_metrics@rizvir.com)
 
 DEFAULT_STATISTICS="Maximum"
 DEFAULT_PERIOD="300"
@@ -54,6 +55,8 @@ Exit status:
 
 Example:
     `basename $0` --description \"MySQL CPU usage\" --namespace \"AWS/RDS\" --metric-name CPUUtilization --statistics Average --dimensions DBInstanceIdentifier=my-database --warning 80 --critical 95 --comparison-operator GreaterThanThreshold
+
+Git repo: https://github.com/rizvir/check_cloudwatch_metrics
 
 "
     exit 3
