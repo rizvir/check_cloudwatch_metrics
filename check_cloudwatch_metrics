@@ -7,7 +7,7 @@ DEFAULT_STATISTICS="Maximum"
 DEFAULT_PERIOD="300"
 
 required_parameters=( description metric-name namespace comparison-operator warning critical )
-optional_parameters=( profile statistics period dimensions unit )
+optional_parameters=( profile statistics period dimensions unit region )
 
 all_parameters=( "${required_parameters[@]}" "${optional_parameters[@]}" )
 
@@ -32,6 +32,7 @@ Mandatory arguments:
 
 Optional arguments:
     --profile               The AWS cli profile to use
+    --region                The AWS region (needed if you do not have a default set in awscli)
     --statistics            One of these statistics for the average over the period:
                                 Average
                                 Sum
@@ -179,7 +180,11 @@ for parameter in "${all_parameters[@]}"; do
         # Handle special cases:
         case "$parameter" in
             profile)
-                aws_params="--profile $profile"
+                aws_params="$aws_params --profile $profile"
+                ;;
+
+            region)
+                aws_params="$aws_params --region $region"
                 ;;
 
             # Don't include these in the aws CLI
@@ -223,9 +228,9 @@ done
 value=$(aws --output text $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics")
 
 
-# If there is no output, return an UNKNOWN
-if [ -z "$value" ]; then
-    echo "UNKNOWN: No output for the check \"$description\""
+# Check if value is a number:
+if ! [[ $value =~ ^[0-9.]+$ ]]; then
+    echo "UNKNOWN: No output for the check \"$description\", got: $value"
     exit 3
 fi
 
