@@ -220,7 +220,7 @@ for parameter in "${all_parameters[@]}"; do
 done
 
 # Run the command:
-value=$(aws --output text $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[].$statistics")
+value=$(aws --output text $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics")
 
 
 # If there is no output, return an UNKNOWN
