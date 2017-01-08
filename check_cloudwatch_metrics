@@ -1,0 +1,245 @@
+#!/bin/bash
+# Nagios check script that uses awscli to fetch CloudWatch Metrics 
+# and compare them with a given threshold
+
+DEFAULT_STATISTICS="Maximum"
+DEFAULT_PERIOD="300"
+
+required_parameters=( description metric-name namespace comparison-operator warning critical )
+optional_parameters=( profile statistics period dimensions unit )
+
+all_parameters=( "${required_parameters[@]}" "${optional_parameters[@]}" )
+
+function print_help() {
+    echo "Usage: `basename $0` OPTIONS...
+Checks AWS CloudWatch metrics and compares them against given warning/critical thresholds
+
+Mandatory arguments:
+    --description           Any description for the nagios output text
+    --metric-name           CloudWatch MetricName, eg. CPUUtilization
+    --namespace             CloudWatch NameSpace, eg. AWS/RDS
+    --comparison-operator   The retrieved value compared with the warning/critical thresholds, one of:
+                                GreaterThanOrEqualToThreshold
+                                GreaterThanThreshold
+                                LessThanThreshold
+                                LessThanOrEqualToThreshold
+                                EqualToThreshold
+                                NotEqualToThreshold
+    --warning               Warning threshold number. If you just want a critical threshold, just
+                            put in the same value for warning as critical
+    --critical              Critical threshold number.
+
+Optional arguments:
+    --profile               The AWS cli profile to use
+    --statistics            One of these statistics for the average over the period:
+                                Average
+                                Sum
+                                Minimum
+                                Maximum
+                            Default: Maximum
+    --period                The period of time in seconds to get the statistic value for. This
+                              has to be a multiple of 60
+    --dimensions            CloudWatch Dimensions in a comma separated Name=Value list.
+                              For example, \"MountPath=/,Filesystem=/dev/xvda1\"
+    --unit                  Optional unit for the get-metric-statistics command
+
+Exit status:
+ 0  if OK
+ 1  if WARNING
+ 2  if CRITICAL
+ 3  if UNKNOWN. If you are getting this, try getting the value you want
+       via \"aws cloudwatch get-metric-statistics\" yourself, and once you get
+       that working, use the same namespace & dimensions (syntax for dimensions
+       differ from the aws cloudwatch command)
+
+Example:
+    `basename $0` --description \"MySQL CPU usage\" --namespace \"AWS/RDS\" --metric-name CPUUtilization --statistics Average --dimensions DBInstanceIdentifier=my-database --warning 80 --critical 95 --comparison-operator GreaterThanThreshold
+
+"
+    exit 3
+}
+
+# returned variable name is the input parameter string
+# with dash made into an underscore
+# eg. metric-name -> metric_name
+function param_to_var_name() {
+    local param=$1
+    echo ${param/-/_}
+}
+
+
+# Floating point comparision function
+# Input: value, comparison-operator, threshold
+# Output: Return code 0 if it matches, 1 otherwise
+# Eg. :
+# compare 45.2 GreaterThanThreshold 20
+# returns 0
+function compare() {
+    local value="$1"
+    local operator="$2"
+    local threshold="$3"
+
+    case "$operator" in
+        GreaterThanOrEqualToThreshold )
+            operator=">="
+            ;;
+        GreaterThanThreshold )
+            operator=">"
+            ;;
+        LessThanThreshold )
+            operator="<"
+            ;;
+        LessThanOrEqualToThreshold )
+            operator="<="
+            ;;
+        EqualToThreshold )
+            operator="=="
+            ;;
+        NotEqualToThreshold )
+            operator="!="
+            ;;
+        *)
+            >&2 echo "Error: invalid comparision operator $operator" 
+            >&2 echo "Expected something like GreaterThanOrEqualToThreshold, LessThanThreshold, etc"
+            >&2 print_help
+            exit 3
+    esac
+
+    if [ 1 -eq "$(echo "$value $operator $threshold" | bc)" ]; then
+        return 0
+    else
+        return 1
+    fi
+
+}
+
+# Need to construct getopt --long string which looks like:
+# "description:,metric-name:,namespace:"
+for parameter in "${all_parameters[@]}"; do
+    getopt_long_vars="${getopt_long_vars}$parameter:,"
+done
+# Remove last comma
+getopt_long_vars=${getopt_long_vars%?}
+
+getopt=$(getopt --options x --long "$getopt_long_vars" --name `basename $0` -- "$@")
+
+if [ $? != 0 ] ; then 
+    echo "Failed to parse options" >&2
+    print_help
+fi
+eval set -- "$getopt"
+
+
+while true; do
+    # Go through parameters and set the variable
+    for parameter in "${all_parameters[@]}"; do
+        if [[ "$1" == "--$parameter" ]]; then
+            variable_name=$(param_to_var_name $parameter)
+            declare "$variable_name"="$2"
+            shift 2
+        fi
+    done
+    if [[ "$1" == "--" ]]; then
+        shift; 
+        break
+    fi
+done
+
+# Check that required variables/options are set:
+for parameter in "${required_parameters[@]}"; do
+    var=$(param_to_var_name $parameter)
+    if [ -z "${!var}" ]; then
+        # Replace _ with -, as that matches the options
+        missing_option=${var/_/-}
+        echo "Required option missing: --$missing_option"
+        print_help
+    fi
+done
+
+# Set default parms if unset:
+if [ -z "$statistics" ]; then
+    statistics="$DEFAULT_STATISTICS"
+fi
+if [ -z "$period" ]; then
+    period="$DEFAULT_PERIOD"
+fi
+
+
+# All of the above was just parameter processing. At this stage, 
+# we should have the variables we need set; so we should construct 
+# the aws get-metrics command
+aws_params=""
+metrics_params=""
+for parameter in "${all_parameters[@]}"; do
+    var=$(param_to_var_name $parameter)
+    if [ ! -z "${!var}" ]; then
+        # Handle special cases:
+        case "$parameter" in
+            profile)
+                aws_params="--profile $profile"
+                ;;
+
+            # Don't include these in the aws CLI
+            description|threshold|warning|critical|comparison-operator)
+                ;;
+
+            dimensions)
+                # We need to convert:
+                # MountPath=/,Filesystem=/dev/xvda1
+                # to
+                # Name=MountPath,Value=/ Name=Filesystem,Value=/dev/xvda1
+                
+                aws_dimensions=""
+                IFS="," 
+                for dim_pair in $dimensions; do
+                    dim_name=$(echo $dim_pair | cut -d '=' -f 1)
+                    dim_value=$(echo $dim_pair | cut -d '=' -f 2)
+                    aws_dimensions="$aws_dimensions Name=$dim_name,Value=$dim_value"
+                done
+                unset IFS
+                metrics_params="$metrics_params --dimensions $aws_dimensions"
+                ;;
+
+            period)
+                # Calculate ISO-8601 UTC from and to date-strings based on period
+                from_string=$(date -u +%FT%TZ -d "$period seconds ago")
+                to_string=$(date -u +%FT%TZ -d "now")
+                metrics_params="$metrics_params --start-time $from_string --end-time $to_string --period $period"
+                ;;
+
+            *)
+                # Anything else matches the aws-cli params, so
+                # put it as it is:
+                metrics_params="$metrics_params --$parameter ${!var}"
+                ;;
+        esac
+    fi
+done
+
+# Run the command:
+value=$(aws --output text $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[].$statistics")
+
+
+# If there is no output, return an UNKNOWN
+if [ -z "$value" ]; then
+    echo "UNKNOWN: No output for the check \"$description\""
+    exit 3
+fi
+
+
+# Do comparison
+text="$description is $value | $metric_name=$value;$warning;$critical"
+if compare "$value" "$comparison_operator" "$critical"; then
+    echo "CRITICAL: $text"
+    exit 2
+elif compare "$value" "$comparison_operator" "$warning"; then
+    echo "WARNING: $text"
+    exit 1
+else
+    echo "OK: $text"
+    exit 0
+fi
+
+
+
+# vim: ts=4:sw=4:expandtab
