@@ -225,7 +225,7 @@ for parameter in "${all_parameters[@]}"; do
 done
 
 # Run the command:
-value=$(aws --output json $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics")
+value=$(aws --output json $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics" 2>&1)
 
 # If the value has an exponent like:
 # 7.2727272727272728e-05
