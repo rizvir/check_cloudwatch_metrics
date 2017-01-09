@@ -109,7 +109,7 @@ function compare() {
             exit 3
     esac
 
-    if [ 1 -eq "$(echo "$value $operator $threshold" | bc)" ]; then
+    if [ 1 -eq "$(echo "scale=8; $value $operator $threshold" | bc)" ]; then
         return 0
     else
         return 1
@@ -226,6 +226,14 @@ done
 
 # Run the command:
 value=$(aws --output json $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics")
+
+# If the value has an exponent like:
+# 7.2727272727272728e-05
+# convert it to floating point reasonable enough for monitoring
+if [[ $value =~ [0-9]e- ]]; then
+    bc_value=${value/e/*10^}
+    value=$(echo "scale=8; $bc_value" | bc)
+fi
 
 
 # Check if value is a number:
