@@ -7,7 +7,7 @@ DEFAULT_STATISTICS="Maximum"
 DEFAULT_PERIOD="300"
 
 required_parameters=( description metric-name namespace comparison-operator warning critical )
-optional_parameters=( awsbin profile region statistics period dimensions unit )
+optional_parameters=( awsbin profile region statistics period dimensions unit null-value)
 
 all_parameters=( "${required_parameters[@]}" "${optional_parameters[@]}" )
 
@@ -45,6 +45,12 @@ Optional arguments:
     --dimensions            CloudWatch Dimensions in a comma separated Name=Value list.
                               For example, \"MountPath=/,Filesystem=/dev/xvda1\"
     --unit                  Optional unit for the get-metric-statistics command
+    --null-value            The value to use if there is no data for the period (=insufficient_data)
+                              If you do not specify a null-value, insufficient data will return UNKNOWN
+                              Specifying this is useful for say Lambda functions that run once in a while,
+                              but whose errors you want to monitor. If the lambda function hasn't run during
+                              the period, the Errors count would be null, but you can use --null-value 0
+                              to not get UNKNOWN messages about that.
 
 Exit status:
  0  if OK
@@ -189,7 +195,7 @@ for parameter in "${all_parameters[@]}"; do
                 ;;
 
             # Don't include these in the aws CLI
-            description|threshold|warning|critical|comparison-operator|awsbin)
+            description|threshold|warning|critical|comparison-operator|awsbin|null-value)
                 ;;
 
             dimensions)
@@ -240,11 +246,16 @@ if [[ $value =~ [0-9]e- ]]; then
     value=$(echo "scale=8; $bc_value" | bc)
 fi
 
-
 # Check if value is a number:
 if ! [[ $value =~ ^[0-9.]+$ ]]; then
-    echo "UNKNOWN: No output for the check \"$description\", got: $value"
-    exit 3
+    # Did not get any values (eg. a lambda function Errors count if it hasn't been run for the period)
+    # If null-value is specfied, used that, otherwise exit
+    if [ -n "$null_value" ]; then
+        value=$null_value
+    else
+        echo "UNKNOWN: No output for the check \"$description\", got: $value"
+        exit 3
+    fi
 fi
 
 
