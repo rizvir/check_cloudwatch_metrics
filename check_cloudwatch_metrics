@@ -7,7 +7,7 @@ DEFAULT_STATISTICS="Maximum"
 DEFAULT_PERIOD="300"
 
 required_parameters=( description metric-name namespace comparison-operator warning critical )
-optional_parameters=( awsbin profile region statistics period dimensions unit null-value)
+optional_parameters=( awsbin awsconf profile region statistics period dimensions unit null-value)
 
 all_parameters=( "${required_parameters[@]}" "${optional_parameters[@]}" )
 
@@ -32,6 +32,7 @@ Mandatory arguments:
 
 Optional arguments:
     --awsbin                Path to the aws binary (default uses your PATH)
+    --awsconf               Path to a aws config file (default: ~/.aws/config)
     --profile               The AWS cli profile to use
     --region                The AWS region (needed if you do not have a default set in awscli)
     --statistics            One of these statistics for the average over the period:
@@ -195,7 +196,7 @@ for parameter in "${all_parameters[@]}"; do
                 ;;
 
             # Don't include these in the aws CLI
-            description|threshold|warning|critical|comparison-operator|awsbin|null-value)
+            description|threshold|warning|critical|comparison-operator|awsbin|awsconf|null-value)
                 ;;
 
             dimensions)
@@ -236,7 +237,7 @@ if [ -z "$awsbin" ]; then
 fi
 
 # Run the command:
-value=$($awsbin --output json $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics" 2>&1)
+value=$(AWS_CONFIG_FILE=$awsconf $awsbin --output json $aws_params cloudwatch get-metric-statistics $metrics_params --query "Datapoints[0].$statistics" 2>&1)
 
 # If the value has an exponent like:
 # 7.2727272727272728e-05
