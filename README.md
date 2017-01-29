@@ -2,7 +2,7 @@
 
 Nagios check to compare AWS CloudWatch metrics against thresholds. Also outputs performance data.
 
-If you have an existing Nagios/Icinga/Centreon setup, you can consider using this check instead of AWS CloudWatch alarms (which each cost, as of writing, $0.10 a month once you exceed the free-tier of 10), if all you need is notification (and have no events). This gives you the added benefit of integrating with your existing Nagios notification or on-call roster.
+If you just need notifications, and have an existing Nagios/Icinga/Centreon setup, you can consider using this check instead of AWS CloudWatch Alarms, which each cost, as of writing, $0.10 a month once you exceed the free-tier of 10). This gives you the added benefit of integrating with your existing Nagios/Icinga notification or on-call roster.
 
 
 #### Installation
@@ -15,6 +15,7 @@ yum install awscli
 If this Nagios plugin will be run from an EC2 instance, you should, ideally, use Instance Profiles to attach a role that has CloudWatchReadOnlyAccess or similar permissions to that instance.
 
 If this Nagios plugin will run from outside AWS, you will need an IAM user dedicated for monitoring. Though one _could_ use a standard admin user's access keys, it's extremely risky having those admin keys lying around. You would be much better off creating an IAM user with just read-only privileges, ideally on just what you need to monitor, but Amazon's "CloudWatchReadOnlyAccess" policy would do. 
+
 To create a user, just go to IAM -> Users -> Add user, put in a User name, and just select Programmatic access (there is no need for AWS Management Console access). On the next step, click on Attach existing policies, and search for CloudWatchReadOnlyAccess and select it. Complete the steps, and note down the access/secret keys. 
 Then, on Nagios/Icinga server, find out what Linux user would be running the check (eg. "nagios"), find out their home directory, and create a file called .aws/credentials with:
 ```
@@ -39,15 +40,20 @@ If that worked, you can go ahead and upload this script where you usually keep y
 This part can be tricky if you aren't familiar with CloudWatch metrics, so your best bet is to look through the Samples below to get an idea of how it works. 
 
 You primarily just need the Namespace, Dimensions and Metric name. You can use the AWS Managment Console -> CloudWatch -> Metrics section to start with. Select the Namespace you are interested in, and then select what makes sense to you (eg. Per-Instance Metrics), and then select one of the metrics you are interested in to graph it. 
+
 Then in the Graphed metrics options, you will have the information you need for the script arguments:
+
 --namespace : Eg. AWS/EC2
+
 --dimensions : Hover your mouse over the Dimensions column to get it's details, eg. InstanceId=i-01243234
+
 --metric-name : Whatever is under MetricName
+
 --statistic : Eg. Average
 
 You may need to read the CloudWatch documentation to know what statistic would be useful for you if it isn't obvious. 
 
-So you could then test the nagios plugin with something like:
+So you could then test the nagios plugin with something like, to warn if the average CPU utilization of this instance-id exceeeded 80 for 10 minutes:
 ```bash
 ./check_cloudwatch_metrics --region ap-southeast-2 --description "CPU usage of my test server" --namespace AWS/EC2 --metric-name CPUUtilization --dimensions InstanceId=i-0123456abcd --warning 80 --critical 95 --comparison-operator GreaterThanThreshold --statistics Average --period 600
 ```
