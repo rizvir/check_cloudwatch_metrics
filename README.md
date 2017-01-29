@@ -2,7 +2,7 @@
 
 Nagios check to compare AWS CloudWatch metrics against thresholds. Also outputs performance data.
 
-If you just need notifications, and have an existing Nagios/Icinga/Centreon setup, you can consider using this check instead of AWS CloudWatch Alarms, which each cost, as of writing, $0.10 a month once you exceed the free-tier of 10). This gives you the added benefit of integrating with your existing Nagios/Icinga notification or on-call roster.
+If you just need notifications, and have an existing Nagios/Icinga/Centreon setup, you can consider using this check instead of AWS CloudWatch Alarms, which each cost, as of writing, $0.10 a month once you exceed the free-tier of 10. This gives you the added benefit of integrating with your existing Nagios/Icinga notification or on-call roster.
 
 
 #### Installation
